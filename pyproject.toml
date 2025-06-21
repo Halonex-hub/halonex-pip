@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "halonex"
+version = "0.1.0"
+authors = [
+    {name = "Dominic", email = "dominic@halonex.app"},
+]
+description = "URL validation and security analysis package using Halonex Vanta API"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "requests>=2.25.0",
+    "urllib3>=1.26.0",
+]
+keywords = ["url", "validation", "security", "malware", "phishing"]
+
+[project.urls]
+Homepage = "https://github.com/dominic-w-21571/halonex"
+"Bug Reports" = "https://github.com/dominic-w-21571/halonex/issues"
+"Source" = "https://github.com/dominic-w-21571/halonex"
+"API Documentation" = "https://api.vanta.halonex.app/docs"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "isort",
+    "flake8",
+    "requests-mock",
+]
