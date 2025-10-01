@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "halonex"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
-    {name = "Dominic", email = "dominic@halonex.app"},
+    {name = "Halonex", email = "admin@halonex.app"},
 ]
 description = "URL validation and security analysis package using Halonex Vanta API"
 readme = "README.md"
