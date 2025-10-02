@@ -19,11 +19,6 @@ try:
     warnings.filterwarnings('ignore', category=NotOpenSSLWarning)
 except ImportError:
     pass
-
-__version__ = "0.1.0"
-__author__ = "Dominic"
-__email__ = "dominic@halonex.app"
-
 # Import main modules for easy access (after warning suppression)
 from . import vanta
 from .exceptions import HalonexError, VantaAPIError, InvalidURLError
