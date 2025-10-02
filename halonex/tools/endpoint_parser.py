@@ -8,9 +8,20 @@ UUIDISH_RE = re.compile(
     r"^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}$"
 )
 
+# Accept: digits, UUIDs, or "sluggy" tokens that include at least one digit or one of - _ .
+# This avoids treating plain alpha resource names (e.g., 'issues') as IDs.
+SLUGGY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
 def _looks_like_id(seg: str) -> bool:
     s = seg.strip()
-    return s.isdigit() or UUIDISH_RE.match(s) is not None
+    if not s:
+        return False
+    return (
+        s.isdigit()
+        or UUIDISH_RE.match(s) is not None
+        or (SLUGGY_ID_RE.match(s) is not None and any(c.isdigit() or c in "-_." for c in s))
+    )
+
 
 @dataclass
 class Endpoint:
