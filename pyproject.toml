@@ -49,3 +49,5 @@ dev = [
     "flake8",
     "requests-mock",
 ]
+[tool.setuptools.package-data]
+"halonex.packageguardian" = ["*.txt"]

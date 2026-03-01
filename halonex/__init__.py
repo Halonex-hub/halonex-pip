@@ -21,10 +21,12 @@ except ImportError:
     pass
 # Import main modules for easy access (after warning suppression)
 from . import vanta
+from . import package_guardian
 from .exceptions import HalonexError, VantaAPIError, InvalidURLError
 
 __all__ = [
     "vanta",
+    "package_guardian",
     "HalonexError",
     "VantaAPIError",
     "InvalidURLError",
