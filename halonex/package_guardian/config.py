@@ -1,17 +1,90 @@
 import os
+from typing import Optional
+
+
+class Plan:
+    """
+    Represents the validated plan / tier returned by the server after
+    API-key verification.
+
+    Tier hierarchy (cumulative):
+        free  → env detection, package listing, local HTML report
+        pro   → + ghost-package detection, secret scanning, DB scanning
+        enterprise → + vulnerability CVE lookup, outdated-version checking,
+                       CDN pattern updates
+
+    Telemetry upload is NOT a tier feature — it is allowed for any
+    valid API key regardless of plan.
+    """
+
+    TIERS = ("free", "pro", "enterprise")
+
+    # Which scanner features each tier unlocks (cumulative)
+    TIER_FEATURES = {
+        "free": {
+            "env_detection",
+            "misconfiguration_check",
+            "framework_detection",
+            "package_listing",
+            "file_structure_scan",
+            "html_report",
+            "ghost_package_detection",
+            "secret_scanning",
+            "db_scanning",
+            "vuln_scanning",
+            "version_scanning",
+            "cdn_updates",
+        },
+        "pro": set(),
+        "enterprise": set(),
+    }
+
+    def __init__(self, tier: str = "free", features: Optional[set] = None):
+        self.tier = tier if tier in self.TIERS else "free"
+        # Always use the local cumulative feature set for the tier.
+        # Server-provided features are ignored so the client-side
+        # TIER_FEATURES dict remains the single source of truth.
+        self.features = self._cumulative_features(self.tier)
+
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _cumulative_features(cls, tier: str) -> set:
+        """Return every feature available at *tier* and below."""
+        result: set = set()
+        for t in cls.TIERS:
+            result |= cls.TIER_FEATURES.get(t, set())
+            if t == tier:
+                break
+        return result
+
+    def has(self, feature: str) -> bool:
+        """Check whether a specific feature is enabled."""
+        return feature in self.features
+
+    def __repr__(self):
+        return f"Plan(tier={self.tier!r}, features={sorted(self.features)})"
+
 
 class Config:
     """
     Central configuration for Package Guardian.
     Loads API keys and defines validation rules.
     """
-    
+
     # The API Key identifier
     API_KEY_VAR = "PACKAGE_GUARDIAN_API_KEY"
-    
+
     # API Configuration
-    API_BASE_URL = os.environ.get("PACKAGE_GUARDIAN_API_URL", "https://api.halonex.app/v1")
-    
+    API_BASE_URL = os.environ.get("PACKAGE_GUARDIAN_API_URL", "http://127.0.0.1:8000")
+
+    # Internal secret for server endpoint authentication
+    INTERNAL_SECRET = os.environ.get("PG_INTERNAL_SECRET", "")
+
+    # ----- Runtime state (set after key validation) -----
+    plan: Plan = Plan()       # defaults to free tier
+    key_validated: bool = False  # True only after server confirms the key
+
     # Files to include in line counting
     SCAN_EXTENSIONS = {
         '.py', '.js', '.jsx', '.ts', '.tsx', 

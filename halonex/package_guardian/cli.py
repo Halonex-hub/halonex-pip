@@ -16,16 +16,12 @@ def main():
     args = parser.parse_args()
     
     # Run scan
-    print("Starting Security Scan...")
-    
-    # The init() function returns the scanning thread
     thread = init(api_key=args.api_key, generate_report=not args.no_report)
     
     if thread:
-        # Wait for the background thread to finish
         thread.join()
         
-    print("\nScan complete. Exiting.")
+    print("Scan complete. View your dashboard at: http://localhost:8000")
 
 if __name__ == "__main__":
     main()

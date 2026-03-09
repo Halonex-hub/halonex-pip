@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import platform
+import ssl
 import threading
 import time
 from pathlib import Path
@@ -247,7 +248,8 @@ class CDNClient:
 
         try:
             with cls._lock:
-                resp = urlopen(req, timeout=cls._timeout)
+                ctx = ssl.create_default_context()
+                resp = urlopen(req, timeout=cls._timeout, context=ctx)
                 data = resp.read()
 
                 # Persist to cache
