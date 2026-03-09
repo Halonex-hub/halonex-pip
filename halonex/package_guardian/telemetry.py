@@ -10,8 +10,8 @@ from .config import Config, Plan
 # Logging control — all internal output goes through _log() which is
 # suppressed by default.  Only the final scan-complete line is printed.
 def _log(msg: str):
-    """Internal logger; silenced so the package produces no console noise."""
-    pass
+    """Internal logger; temporarily enabled for debugging."""
+    print(msg)
 
 class Telemetry:
     """

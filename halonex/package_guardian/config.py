@@ -76,10 +76,10 @@ class Config:
     API_KEY_VAR = "PACKAGE_GUARDIAN_API_KEY"
 
     # API Configuration
-    API_BASE_URL = os.environ.get("PACKAGE_GUARDIAN_API_URL", "http://127.0.0.1:8000")
+    API_BASE_URL = "https://packageguardian.halonex.net"
 
     # Internal secret for server endpoint authentication
-    INTERNAL_SECRET = os.environ.get("PG_INTERNAL_SECRET", "")
+    INTERNAL_SECRET = "change-me-internal-secret"
 
     # ----- Runtime state (set after key validation) -----
     plan: Plan = Plan()       # defaults to free tier
