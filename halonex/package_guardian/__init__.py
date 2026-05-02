@@ -41,6 +41,8 @@ def _run_scan_thread(api_key: Optional[str], generate_report: bool):
         #  Phase 0b — CDN pattern updates
         # ==============================================================
         patterns_path = None
+        cdn_safe_loaded = False
+        cdn_npm_loaded = False
         if plan.has("cdn_updates"):
             try:
                 CDNClient.configure()
@@ -48,9 +50,11 @@ def _run_scan_thread(api_key: Optional[str], generate_report: bool):
                 cdn_safe = CDNClient.fetch_safe_list()
                 if cdn_safe:
                     Config.SAFE_LIST = cdn_safe
+                    cdn_safe_loaded = True
                 cdn_npm = CDNClient.fetch_npm_safe_list()
                 if cdn_npm:
                     Scanner.update_npm_safe_list(cdn_npm)
+                    cdn_npm_loaded = True
             except Exception:
                 patterns_path = None
 
@@ -93,7 +97,7 @@ def _run_scan_thread(api_key: Optional[str], generate_report: bool):
         # --- Ghost-package detection ---
         ghosts = []
         anomalies = []
-        if plan.has("ghost_package_detection"):
+        if plan.has("ghost_package_detection") and cdn_safe_loaded:
             ghosts = package_report.get('python', {}).get('ghost_packages', [])
             anomalies = package_report.get('python', {}).get('anomalies', [])
 
@@ -127,9 +131,8 @@ def _run_scan_thread(api_key: Optional[str], generate_report: bool):
         secrets_summary = {}
         db_issues = []
 
-        if plan.has("secret_scanning"):
-            if patterns_path:
-                SecretScanner.load_patterns(patterns_path)
+        if plan.has("secret_scanning") and patterns_path:
+            SecretScanner.load_patterns(patterns_path)
             secrets = SecretScanner.scan_directory(".", Config.IGNORE_DIRS)
             secrets_summary = SecretScanner.summarize(secrets)
 

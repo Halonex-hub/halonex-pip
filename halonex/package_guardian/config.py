@@ -8,18 +8,19 @@ class Plan:
     API-key verification.
 
     Tier hierarchy (cumulative):
-        free  → env detection, package listing, local HTML report
-        pro   → + ghost-package detection, secret scanning, DB scanning
-        enterprise → + vulnerability CVE lookup, outdated-version checking,
-                       CDN pattern updates
+        free  → env detection, package listing, ghost detection,
+                secret scanning, CDN pattern updates, misconfig checks
+        pro   → + vulnerability CVE lookup, outdated-version checking,
+                  DB security audit
 
     Telemetry upload is NOT a tier feature — it is allowed for any
     valid API key regardless of plan.
     """
 
-    TIERS = ("free", "pro", "enterprise")
+    TIERS = ("free", "pro")
 
-    # Which scanner features each tier unlocks (cumulative)
+    # Which scanner features each tier unlocks (cumulative).
+    # Used only as a fallback when the server is unreachable.
     TIER_FEATURES = {
         "free": {
             "env_detection",
@@ -27,26 +28,52 @@ class Plan:
             "framework_detection",
             "package_listing",
             "file_structure_scan",
-            "html_report",
             "ghost_package_detection",
             "secret_scanning",
-            "db_scanning",
-            "vuln_scanning",
-            "version_scanning",
             "cdn_updates",
         },
-        "pro": set(),
-        "enterprise": set(),
+        "pro": {
+            "vuln_scanning",
+            "version_scanning",
+            "db_scanning",
+        },
     }
 
-    def __init__(self, tier: str = "free", features: Optional[set] = None):
+    # Maps server-side feature flag names to the internal scanner feature
+    # names used by plan.has().  The server is the authoritative source;
+    # this mapping lets the client translate without hard-coding tier logic.
+    _SERVER_FEATURE_MAP: dict = {
+        "basic_scan":      {"env_detection", "misconfiguration_check",
+                            "framework_detection", "package_listing",
+                            "file_structure_scan"},
+        "ghost_detection": {"ghost_package_detection"},
+        "secret_scanning": {"secret_scanning"},
+        "cdn_patterns":    {"cdn_updates"},
+        "vulnerability_check": {"vuln_scanning"},
+        "outdated_check":  {"version_scanning"},
+        "db_security_audit": {"db_scanning"},
+    }
+
+    def __init__(self, tier: str = "free", features: Optional[dict] = None):
         self.tier = tier if tier in self.TIERS else "free"
-        # Always use the local cumulative feature set for the tier.
-        # Server-provided features are ignored so the client-side
-        # TIER_FEATURES dict remains the single source of truth.
-        self.features = self._cumulative_features(self.tier)
+        if features and isinstance(features, dict):
+            # Server is the authoritative source — translate its feature
+            # flags into the internal names used by plan.has().
+            self.features = self._map_server_features(features)
+        else:
+            # Fallback: server unreachable or no key — use local tier defaults.
+            self.features = self._cumulative_features(self.tier)
 
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _map_server_features(cls, server_features: dict) -> set:
+        """Translate the server's bool feature dict to internal scanner feature names."""
+        result: set = set()
+        for server_key, enabled in server_features.items():
+            if enabled and server_key in cls._SERVER_FEATURE_MAP:
+                result |= cls._SERVER_FEATURE_MAP[server_key]
+        return result
 
     @classmethod
     def _cumulative_features(cls, tier: str) -> set:
@@ -97,63 +124,9 @@ class Config:
         'node_modules', '.idea', '.vscode', 'build', 'dist', 'egg-info'
     }
 
-    # Known safe packages — top ~120 PyPI packages by download count.
-    # Used for typo-squat / ghost-package detection.
-    SAFE_LIST = {
-        # Web frameworks
-        'requests', 'flask', 'django', 'fastapi', 'tornado', 'starlette',
-        'sanic', 'bottle', 'falcon', 'aiohttp', 'quart', 'litestar',
-        'uvicorn', 'gunicorn', 'hypercorn', 'waitress',
-        # Data / ML
-        'numpy', 'pandas', 'scipy', 'scikit-learn', 'matplotlib',
-        'tensorflow', 'torch', 'keras', 'xgboost', 'lightgbm',
-        'pillow', 'opencv-python', 'seaborn', 'plotly',
-        # AWS / Cloud
-        'boto3', 'botocore', 'awscli', 's3transfer',
-        # Database
-        'sqlalchemy', 'psycopg2', 'psycopg2-binary', 'pymongo', 'redis',
-        'alembic', 'pymysql',
-        # Utils / Core
-        'urllib3', 'six', 'certifi', 'idna', 'charset-normalizer',
-        'python-dateutil', 'pytz', 'packaging', 'typing-extensions',
-        'pyyaml', 'toml', 'tomli', 'attrs', 'cattrs',
-        # CLI / Config
-        'click', 'rich', 'colorama', 'tqdm', 'argparse',
-        # Build / Packaging
-        'setuptools', 'wheel', 'pip', 'build', 'twine', 'flit',
-        'poetry', 'hatchling', 'pdm',
-        # Web utilities
-        'jinja2', 'markupsafe', 'werkzeug', 'itsdangerous',
-        'httpx', 'httpcore', 'httptools', 'websockets',
-        # Crypto / Auth
-        'cryptography', 'pyjwt', 'paramiko', 'pyopenssl',
-        'bcrypt', 'passlib', 'python-jose',
-        # Async
-        'celery', 'dramatiq', 'kombu', 'billiard',
-        # Serialization
-        'protobuf', 'grpcio', 'msgpack', 'orjson', 'ujson',
-        # Validation
-        'pydantic', 'marshmallow', 'cerberus', 'voluptuous',
-        # Testing
-        'pytest', 'pytest-cov', 'coverage', 'tox', 'nox',
-        'mock', 'faker', 'factory-boy', 'hypothesis',
-        # Linting / Formatting
-        'pylint', 'flake8', 'black', 'isort', 'mypy', 'ruff', 'bandit',
-        # Docs
-        'sphinx', 'mkdocs',
-        # Misc popular
-        'lxml', 'beautifulsoup4', 'soupsieve', 'scrapy',
-        'regex', 'chardet', 'filelock', 'platformdirs',
-        'wrapt', 'decorator', 'more-itertools', 'multidict',
-        'frozenlist', 'aiosignal', 'yarl',
-        'docutils', 'pygments', 'babel',
-        'importlib-metadata', 'importlib-resources', 'zipp',
-        'distlib', 'virtualenv', 'pipenv',
-        'greenlet', 'gevent', 'eventlet',
-        'cffi', 'pycparser',
-        'google-auth', 'google-api-core', 'google-cloud-storage',
-        'azure-core', 'azure-storage-blob',
-    }
+    # Known safe packages — populated exclusively by CDN via fetch_safe_list().
+    # Empty until the CDN delivers data — ghost detection won't run without it.
+    SAFE_LIST: set = set()
 
     @staticmethod
     def get_api_key():

@@ -33,8 +33,8 @@ class Telemetry:
         Expected 200 response body (example):
             {
                 "valid": true,
-                "tier": "pro",
-                "features": ["env_detection", "ghost_package_detection", ...]
+                "plan": "pro",
+                "features": {"basic_scan": true, "ghost_detection": true, ...}
             }
 
         Returns:
@@ -58,9 +58,9 @@ class Telemetry:
             Config.key_validated = False
             return Plan()
 
-        tier = result.get("tier", "free")
-        features = result.get("features")  # may be None → use tier defaults
-        plan = Plan(tier, features=set(features) if features else None)
+        tier = result.get("plan", "free")
+        features = result.get("features")  # dict or None
+        plan = Plan(tier, features=features if isinstance(features, dict) else None)
         Config.key_validated = True
         _log(f"[AUTH]: Key validated — tier={plan.tier}, "
               f"features={len(plan.features)}")

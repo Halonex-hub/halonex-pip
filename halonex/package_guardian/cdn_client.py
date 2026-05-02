@@ -168,7 +168,20 @@ class CDNClient:
         """
         local_path = cls._fetch_resource(_RESOURCE_SECRET_PATTERNS, force=force)
         if local_path and local_path.exists():
+            count = cls._count_pattern_entries(local_path)
+            if count < 10:
+                print(
+                    f"[CDN WARNING]: Secret patterns file has only {count} "
+                    f"entr{'y' if count == 1 else 'ies'} (expected \u226510). "
+                    "CDN may be degraded \u2014 secret scanning coverage is reduced."
+                )
             return str(local_path)
+
+        # CDN unreachable and no cached copy available
+        print(
+            "[CDN WARNING]: CDN unreachable and no cached secret_patterns.txt found. "
+            "Secret scanning will be skipped entirely."
+        )
 
         # Fallback: bundled file
         bundled = Path(__file__).resolve().parent / "secret_patterns.txt"
@@ -289,14 +302,23 @@ class CDNClient:
         Fetch a JSON array resource and return a ``set`` of lowercase strings.
         """
         local_path = cls._fetch_resource(resource, force=force)
-        if local_path and local_path.exists():
-            try:
-                raw = local_path.read_text(encoding="utf-8")
-                data = json.loads(raw)
-                if isinstance(data, list):
-                    return {str(item).lower().strip() for item in data if item}
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                print(f"[CDN WARNING]: Failed to parse {resource}: {exc}")
+        if not local_path or not local_path.exists():
+            print(f"[CDN WARNING]: CDN unreachable and no cached {resource} available.")
+            return set()
+        try:
+            raw = local_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if isinstance(data, list):
+                result = {str(item).lower().strip() for item in data if item}
+                if len(result) < 10:
+                    print(
+                        f"[CDN WARNING]: {resource} has only {len(result)} "
+                        f"entr{'y' if len(result) == 1 else 'ies'} (expected \u226510). "
+                        "CDN may be degraded."
+                    )
+                return result
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            print(f"[CDN WARNING]: Failed to parse {resource}: {exc}")
         return set()
 
     # ------------------------------------------------------------------
@@ -341,6 +363,22 @@ class CDNClient:
     # ------------------------------------------------------------------
     # Utilities
     # ------------------------------------------------------------------
+
+    @classmethod
+    def _count_pattern_entries(cls, path: Path) -> int:
+        """Count valid (non-blank, non-comment, pipe-delimited) lines in a patterns file."""
+        count = 0
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if len(line.split("|", maxsplit=2)) == 3:
+                        count += 1
+        except OSError:
+            pass
+        return count
 
     @classmethod
     def clear_cache(cls) -> None:

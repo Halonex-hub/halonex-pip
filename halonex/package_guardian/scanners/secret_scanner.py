@@ -117,25 +117,12 @@ class SecretScanner:
                         print(f"[SECRET SCANNER WARNING]: Bad regex on line {lineno} "
                               f"of {filepath}: {exc}")
         except FileNotFoundError:
-            print(f"[SECRET SCANNER WARNING]: Patterns file not found at {filepath}. "
-                  "Using built-in fallback patterns.")
-            patterns = cls._builtin_fallback_patterns()
+            # No CDN patterns file — return empty so secret scanning is skipped.
+            patterns = []
 
         cls._patterns_cache = patterns
-        cls._patterns_loaded = True
+        cls._patterns_loaded = bool(patterns)
         return patterns
-
-    @staticmethod
-    def _builtin_fallback_patterns() -> list:
-        """Minimal set of patterns used when the external file is missing."""
-        raw = [
-            ("CRITICAL", "AWS Access Key ID", r"AKIA[0-9A-Z]{16}"),
-            ("CRITICAL", "Private Key Header", r"-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"),
-            ("HIGH", "Generic API Key", r"(?i)(?:api_key|apikey|secret|token)['\"]?\s*[:=]\s*['\"]?([A-Za-z0-9\-_]{16,})['\"]?"),
-            ("HIGH", "Slack Token", r"xox[baprs]-[0-9a-zA-Z]{10,48}"),
-            ("CRITICAL", "GitHub PAT", r"ghp_[0-9a-zA-Z]{36}"),
-        ]
-        return [SecretPattern(s, n, r) for s, n, r in raw]
 
     # ------------------------------------------------------------------
     # Entropy Helpers

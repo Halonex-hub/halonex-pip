@@ -1,5 +1,7 @@
 import os
 import re
+import urllib.request
+import urllib.error
 import importlib.metadata
 import json
 from .config import Config
@@ -117,6 +119,12 @@ class Scanner:
         # Also check for npm typo-squatting against popular packages
         npm_ghosts = cls._check_npm_ghosts(npm_report)
 
+        # Enrich ghost candidates with registry existence check
+        for g in unique_ghosts:
+            cls._enrich_ghost(g, "PyPI")
+        for g in npm_ghosts:
+            cls._enrich_ghost(g, "npm")
+
         return {
             "python": python_report,
             "npm": npm_report,
@@ -201,15 +209,9 @@ class Scanner:
     #  NPM ghost detection
     # ------------------------------------------------------------------
 
-    # Top npm packages to check typo-squatting against
-    _NPM_SAFE_LIST = {
-        "express", "react", "react-dom", "vue", "angular", "next",
-        "lodash", "axios", "moment", "webpack", "babel", "typescript",
-        "eslint", "prettier", "jest", "mocha", "chai", "npm",
-        "node-fetch", "chalk", "commander", "inquirer", "mongoose",
-        "socket.io", "cors", "dotenv", "jsonwebtoken", "bcrypt",
-        "passport", "sequelize", "pg", "mysql2", "redis",
-    }
+    # Populated exclusively by CDN via update_npm_safe_list().
+    # Empty until the CDN delivers data — ghost detection won't run without it.
+    _NPM_SAFE_LIST: set = set()
 
     @classmethod
     def update_npm_safe_list(cls, packages: set) -> None:
@@ -246,6 +248,49 @@ class Scanner:
     # ------------------------------------------------------------------
     #  File structure scan (unchanged)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    #  Registry existence check (ghost enrichment)
+    # ------------------------------------------------------------------
+
+    _REGISTRY_CACHE: dict = {}  # (ecosystem, name) -> bool
+    _CONFIDENCE_DOWNGRADE = {"high": "medium", "medium": "low", "low": "low"}
+
+    @classmethod
+    def _registry_exists(cls, name: str, ecosystem: str) -> bool:
+        """Check whether `name` resolves on PyPI or npm."""
+        key = (ecosystem, name.lower())
+        if key in cls._REGISTRY_CACHE:
+            return cls._REGISTRY_CACHE[key]
+
+        if ecosystem == "PyPI":
+            url = f"https://pypi.org/pypi/{name}/json"
+        elif ecosystem == "npm":
+            url = f"https://registry.npmjs.org/{name}"
+        else:
+            return False
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PackageGuardian/0.2"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                exists = getattr(resp, "status", 200) == 200
+        except urllib.error.HTTPError:
+            exists = False
+        except Exception:
+            exists = False
+
+        cls._REGISTRY_CACHE[key] = exists
+        return exists
+
+    @classmethod
+    def _enrich_ghost(cls, ghost: dict, ecosystem: str) -> None:
+        """Mutate ghost entry in-place: add exists_on_registry; downgrade confidence if absent."""
+        exists = cls._registry_exists(ghost["name"], ecosystem)
+        ghost["exists_on_registry"] = exists
+        if not exists:
+            ghost["confidence"] = cls._CONFIDENCE_DOWNGRADE.get(
+                ghost.get("confidence", "medium"), "low"
+            )
 
     @staticmethod
     def scan_file_structure(root_dir="."):

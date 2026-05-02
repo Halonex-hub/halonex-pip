@@ -123,23 +123,25 @@ class Sensor:
         ".pypirc":       "A .pypirc file may contain PyPI credentials.",
     }
 
+    @staticmethod
+    def _wrap_alert(severity: str = "info", category: str = "runtime",
+                    message: str = "", remediation: str = "") -> dict:
+        """Build a structured security-alert dict matching the spec payload shape."""
+        return {
+            "severity": severity,
+            "category": category,
+            "message": message,
+            "remediation": remediation,
+        }
+
     @classmethod
     def check_misconfigurations(cls) -> dict:
         """
         Deep audit of environment variables, dangerous files, and common
         security anti-patterns.
 
-        Categories
-        ----------
-        * **debug_flags** — debug / dev mode enabled in production
-        * **exposed_secrets** — secret-looking env vars that are set
-        * **insecure_env** — OAUTHLIB_INSECURE_TRANSPORT, etc.
-        * **dangerous_files** — .env, private keys, .npmrc in project root
-        * **missing_protections** — missing .gitignore, no requirements lock, etc.
-        * **tls_verification** — curl/pip/node TLS verification disabled
-
         Returns:
-            dict: ``{key: message}`` for every issue found.
+            dict: ``{key: structured_alert}`` for every issue found.
         """
         issues: dict = {}
 
@@ -147,65 +149,74 @@ class Sensor:
         for var in cls._DEBUG_FLAGS:
             val = os.environ.get(var, "").strip().lower()
             if val in cls._TRUTHY:
-                # NODE_ENV=development is normal locally, but flag it
                 if var in ("NODE_ENV", "RAILS_ENV", "APP_ENV", "ENVIRONMENT"):
-                    issues[var] = (
-                        f"WARNING: {var}={os.environ[var]!r} — "
-                        "this indicates a non-production environment."
+                    issues[var] = cls._wrap_alert(
+                        severity="medium",
+                        category="runtime",
+                        message=f"{var}={os.environ[var]!r} — this indicates a non-production environment.",
+                        remediation=f"Set {var} to a production value before deploying.",
                     )
                 else:
-                    issues[var] = (
-                        f"CRITICAL: {var} is enabled "
-                        f"(value={os.environ[var]!r}).  "
-                        "Disable debug mode before deploying to production."
+                    issues[var] = cls._wrap_alert(
+                        severity="critical",
+                        category="runtime",
+                        message=f"{var} is enabled (value={os.environ[var]!r}). Disable debug mode before deploying.",
+                        remediation=f"Unset or set {var}=false in production.",
                     )
 
         # ---- 2. Exposed secret-looking env vars ----
         for key in os.environ:
             upper = key.upper()
             if any(frag in upper for frag in cls._SECRET_FRAGMENTS):
-                # Skip our own key, and common non-sensitive names
                 if key == "PACKAGE_GUARDIAN_API_KEY":
                     continue
-                issues[key] = (
-                    f"WARNING: Environment variable '{key}' looks like a secret.  "
-                    "Make sure it is not logged or leaked in CI output."
+                issues[key] = cls._wrap_alert(
+                    severity="medium",
+                    category="permissions",
+                    message=f"Environment variable '{key}' looks like a secret. Make sure it is not logged or leaked in CI output.",
+                    remediation="Audit CI pipeline for secret logging; use a secrets manager.",
                 )
 
         # ---- 3. Specific dangerous env vars ----
         for var in cls._DANGEROUS_ENV_VARS:
             if os.environ.get(var):
-                issues[var] = (
-                    f"WARNING: '{var}' is set — this may weaken security.  "
-                    "Only use in tightly controlled dev environments."
+                issues[var] = cls._wrap_alert(
+                    severity="medium",
+                    category="runtime",
+                    message=f"'{var}' is set — this may weaken security. Only use in tightly controlled dev environments.",
+                    remediation=f"Remove {var} from production environment.",
                 )
 
         # ---- 4. TLS verification disabled ----
         tls_off_vars = {
-            "PYTHONHTTPSVERIFY": "Python HTTPS certificate verification disabled.",
-            "NODE_TLS_REJECT_UNAUTHORIZED": "Node.js TLS certificate rejection disabled.",
-            "CURL_CA_BUNDLE": "Custom CA bundle — verify it is intentional.",
-            "REQUESTS_CA_BUNDLE": "Custom CA bundle for Python requests.",
-            "GIT_SSL_NO_VERIFY": "Git SSL verification disabled!",
-            "PIP_TRUSTED_HOST": "pip trusted-host set — packages fetched over HTTP.",
+            "PYTHONHTTPSVERIFY": ("critical", "Python HTTPS certificate verification disabled.", "Remove PYTHONHTTPSVERIFY or set it to 1."),
+            "NODE_TLS_REJECT_UNAUTHORIZED": ("critical", "Node.js TLS certificate rejection disabled.", "Remove NODE_TLS_REJECT_UNAUTHORIZED or set it to 1."),
+            "CURL_CA_BUNDLE": ("info", "Custom CA bundle — verify it is intentional.", "Ensure the CA bundle is trusted and up-to-date."),
+            "REQUESTS_CA_BUNDLE": ("info", "Custom CA bundle for Python requests.", "Ensure the CA bundle is trusted and up-to-date."),
+            "GIT_SSL_NO_VERIFY": ("critical", "Git SSL verification disabled!", "Remove GIT_SSL_NO_VERIFY."),
+            "PIP_TRUSTED_HOST": ("info", "pip trusted-host set — packages fetched over HTTP.", "Prefer HTTPS package sources."),
         }
-        for var, msg in tls_off_vars.items():
+        for var, (sev, msg, rem) in tls_off_vars.items():
             val = os.environ.get(var, "")
             if var == "NODE_TLS_REJECT_UNAUTHORIZED" and val == "0":
-                issues[var] = f"CRITICAL: {msg}"
+                issues[var] = cls._wrap_alert(severity=sev, category="network", message=msg, remediation=rem)
             elif var == "GIT_SSL_NO_VERIFY" and val.lower() in cls._TRUTHY:
-                issues[var] = f"CRITICAL: {msg}"
+                issues[var] = cls._wrap_alert(severity=sev, category="network", message=msg, remediation=rem)
             elif var == "PYTHONHTTPSVERIFY" and val == "0":
-                issues[var] = f"CRITICAL: {msg}"
+                issues[var] = cls._wrap_alert(severity=sev, category="network", message=msg, remediation=rem)
             elif val and var not in issues:
-                # Just note presence for CA bundle vars
                 if var in ("CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "PIP_TRUSTED_HOST"):
-                    issues[var] = f"INFO: {msg}"
+                    issues[var] = cls._wrap_alert(severity=sev, category="network", message=msg, remediation=rem)
 
         # ---- 5. Dangerous files in project root ----
         for filename, msg in cls._DANGEROUS_FILES.items():
             if os.path.isfile(filename):
-                issues[f"FILE:{filename}"] = f"WARNING: {msg}"
+                issues[f"FILE:{filename}"] = cls._wrap_alert(
+                    severity="high",
+                    category="filesystem",
+                    message=msg,
+                    remediation=f"Add {filename} to .gitignore and remove it from version control.",
+                )
 
         # .env exists but .gitignore does not mention it
         if os.path.isfile(".env"):
@@ -221,27 +232,32 @@ class Sensor:
                 except Exception:
                     pass
             if not gitignore_ok:
-                issues["GITIGNORE:.env"] = (
-                    "CRITICAL: .env file exists but is NOT listed in .gitignore.  "
-                    "Secrets may be committed to version control."
+                issues["GITIGNORE:.env"] = cls._wrap_alert(
+                    severity="critical",
+                    category="filesystem",
+                    message=".env file exists but is NOT listed in .gitignore. Secrets may be committed to version control.",
+                    remediation="Add .env to .gitignore immediately.",
                 )
 
         # ---- 6. Missing protections ----
         if not os.path.isfile(".gitignore"):
-            issues["MISSING:.gitignore"] = (
-                "WARNING: No .gitignore file found in the project root.  "
-                "Sensitive files and build artefacts may be committed."
+            issues["MISSING:.gitignore"] = cls._wrap_alert(
+                severity="medium",
+                category="filesystem",
+                message="No .gitignore file found in the project root. Sensitive files and build artefacts may be committed.",
+                remediation="Create a .gitignore file and add common exclusions.",
             )
 
-        # Check for lock-file (requirements pinning)
         lock_files = [
             "requirements.txt", "Pipfile.lock", "poetry.lock", "pdm.lock",
             "uv.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
         ]
         if not any(os.path.isfile(lf) for lf in lock_files):
-            issues["MISSING:lockfile"] = (
-                "WARNING: No dependency lock-file found.  "
-                "Builds may be non-reproducible and vulnerable to supply-chain attacks."
+            issues["MISSING:lockfile"] = cls._wrap_alert(
+                severity="medium",
+                category="runtime",
+                message="No dependency lock-file found. Builds may be non-reproducible and vulnerable to supply-chain attacks.",
+                remediation="Generate a lock file (e.g. pip freeze > requirements.txt).",
             )
 
         # ---- 7. World-writable current directory (Linux/macOS) ----
@@ -250,9 +266,11 @@ class Sensor:
                 import stat
                 mode = os.stat(".").st_mode
                 if mode & stat.S_IWOTH:
-                    issues["DIR:world_writable"] = (
-                        "CRITICAL: Current working directory is world-writable.  "
-                        "Other users on this machine can modify your code."
+                    issues["DIR:world_writable"] = cls._wrap_alert(
+                        severity="critical",
+                        category="filesystem",
+                        message="Current working directory is world-writable. Other users on this machine can modify your code.",
+                        remediation="chmod o-w .",
                     )
             except Exception:
                 pass
